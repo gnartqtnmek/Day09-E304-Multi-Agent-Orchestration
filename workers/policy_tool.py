@@ -21,6 +21,7 @@ import os
 import re
 from pathlib import Path
 from typing import Any, Optional
+import sys
 
 WORKER_NAME = "policy_tool_worker"
 
@@ -208,24 +209,73 @@ def analyze_policy(task: str, chunks: list) -> dict:
     policy_applies = len(exceptions_found) == 0
 
     # Determine which policy version applies (temporal scoping)
-    # TODO: Check nếu đơn hàng trước 01/02/2026 → v3 applies (không có docs, nên flag cho synthesis)
+    # Nếu task đề cập đơn hàng trước 01/02/2026 → flag lại vì docs không có policy v3
     policy_name = "refund_policy_v4"
     policy_version_note = ""
     if "31/01" in task_lower or "30/01" in task_lower or "trước 01/02" in task_lower:
         policy_version_note = "Đơn hàng đặt trước 01/02/2026 áp dụng chính sách v3 (không có trong tài liệu hiện tại)."
 
-    # TODO Sprint 2: Gọi LLM để phân tích phức tạp hơn
-    # Ví dụ:
-    # from openai import OpenAI
-    # client = OpenAI()
-    # response = client.chat.completions.create(
-    #     model="gpt-4o-mini",
-    #     messages=[
-    #         {"role": "system", "content": "Bạn là policy analyst. Dựa vào context, xác định policy áp dụng và các exceptions."},
-    #         {"role": "user", "content": f"Task: {task}\n\nContext:\n" + "\n".join([c['text'] for c in chunks])}
-    #     ]
-    # )
-    # analysis = response.choices[0].message.content
+    # --- LLM-based analysis (primary) với rule-based làm fallback ---
+    # Mặc định explanation từ rule-based, sẽ bị ghi đè nếu LLM thành công
+    explanation = "Rule-based fallback (LLM unavailable or failed)."
+
+    try:
+        from openai import OpenAI
+
+        # Tạo OpenAI client với API key từ .env
+        llm_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+        # Ghép toàn bộ text của các chunks thành một context string
+        # (không lowercase vì LLM cần đọc nội dung gốc)
+        context_for_llm = "\n\n".join([c.get("text", "") for c in chunks])
+
+        response = llm_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Bạn là policy analyst. Dựa vào context được cung cấp, xác định:\n"
+                        "1. Policy hoàn tiền có áp dụng không (policy_applies: true/false)\n"
+                        "2. Có exceptions nào không (flash_sale, digital_product, activated)\n"
+                        "Trả về JSON hợp lệ với đúng 3 key: "
+                        "{\"policy_applies\": bool, \"exceptions\": [str], \"explanation\": str}"
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": f"Task: {task}\n\nContext:\n{context_for_llm}"
+                }
+            ],
+            temperature=0,                              # temperature=0 để output ổn định, không sáng tạo
+            response_format={"type": "json_object"},    # ép LLM trả về JSON hợp lệ
+        )
+
+        # Parse JSON string từ LLM response
+        llm_result = json.loads(response.choices[0].message.content)
+
+        # Dùng LLM's policy_applies thay cho rule-based nếu LLM trả về hợp lệ
+        # LLM hiểu ngữ cảnh tốt hơn rule-based với các câu hỏi phức tạp
+        policy_applies = llm_result.get("policy_applies", policy_applies)
+
+        # Lấy explanation từ LLM (giải thích tại sao policy áp dụng hay không)
+        explanation = llm_result.get("explanation", explanation)
+
+        # Nếu LLM detect thêm exceptions mà rule-based bỏ sót → append vào danh sách
+        # (rule-based chỉ check keyword đơn giản, LLM có thể hiểu ngữ nghĩa sâu hơn)
+        for ex_type in llm_result.get("exceptions", []):
+            already_found = any(e["type"] == ex_type for e in exceptions_found)
+            if not already_found:
+                exceptions_found.append({
+                    "type": ex_type,
+                    "rule": f"Detected by LLM: {ex_type}",
+                    "source": "policy_refund_v4.txt",
+                })
+
+    except Exception as llm_error:
+        # LLM call thất bại (network, API key, quota...) → giữ nguyên rule-based result
+        # Không raise exception để worker vẫn hoạt động được
+        explanation = f"Rule-based fallback (LLM error: {llm_error})."
 
     sources = list({c.get("source", "unknown") for c in chunks if c})
 
@@ -235,7 +285,7 @@ def analyze_policy(task: str, chunks: list) -> dict:
         "exceptions_found": exceptions_found,
         "source": sources,
         "policy_version_note": policy_version_note,
-        "explanation": "Analyzed via rule-based policy check. TODO: upgrade to LLM-based analysis.",
+        "explanation": explanation,   # giờ chứa explanation thật từ LLM (hoặc fallback message)
     }
 
 

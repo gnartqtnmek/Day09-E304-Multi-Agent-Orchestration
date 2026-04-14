@@ -17,6 +17,8 @@ Gọi độc lập để test:
 
 import os
 import sys
+from dotenv import load_dotenv
+load_dotenv()
 
 # ─────────────────────────────────────────────
 # Worker Contract (xem contracts/worker_contracts.yaml)
@@ -29,36 +31,12 @@ DEFAULT_TOP_K = 3
 
 
 def _get_embedding_fn():
-    """
-    Trả về embedding function.
-    TODO Sprint 1: Implement dùng OpenAI hoặc Sentence Transformers.
-    """
-    # Option A: Sentence Transformers (offline, không cần API key)
-    try:
-        from sentence_transformers import SentenceTransformer
-        model = SentenceTransformer("all-MiniLM-L6-v2")
-        def embed(text: str) -> list:
-            return model.encode([text])[0].tolist()
-        return embed
-    except ImportError:
-        pass
-
-    # Option B: OpenAI (cần API key)
-    try:
-        from openai import OpenAI
-        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        def embed(text: str) -> list:
-            resp = client.embeddings.create(input=text, model="text-embedding-3-small")
-            return resp.data[0].embedding
-        return embed
-    except ImportError:
-        pass
-
-    # Fallback: random embeddings cho test (KHÔNG dùng production)
-    import random
+    """Dùng OpenAI text-embedding-3-small — nhất quán với index đã build từ Day 08."""
+    from openai import OpenAI
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     def embed(text: str) -> list:
-        return [random.random() for _ in range(384)]
-    print("⚠️  WARNING: Using random embeddings (test only). Install sentence-transformers.")
+        resp = client.embeddings.create(input=text, model="text-embedding-3-small")
+        return resp.data[0].embedding
     return embed
 
 
@@ -69,15 +47,7 @@ def _get_collection():
     """
     import chromadb
     client = chromadb.PersistentClient(path="./chroma_db")
-    try:
-        collection = client.get_collection("day09_docs")
-    except Exception:
-        # Auto-create nếu chưa có
-        collection = client.get_or_create_collection(
-            "day09_docs",
-            metadata={"hnsw:space": "cosine"}
-        )
-        print(f"⚠️  Collection 'day09_docs' chưa có data. Chạy index script trong README trước.")
+    collection = client.get_collection("rag_lab")
     return collection
 
 
