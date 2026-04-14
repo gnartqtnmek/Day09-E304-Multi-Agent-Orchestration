@@ -8,7 +8,7 @@
 # TODO Sprint 2: Cập nhật "actual_implementation" khi đã implement xong.
 
 version: "1.0"
-updated_at: "2026-04-13"
+updated_at: "2026-04-14"
 
 # ─────────────────────────────────────────────
 # Supervisor
@@ -96,8 +96,8 @@ retrieval_worker:
     - "Score phải là float trong khoảng [0, 1]"
     - "Stateless: không đọc hoặc ghi state ngoài những gì được khai báo ở trên"
   actual_implementation:
-    status: "TODO Sprint 2"  # Update to "done" khi xong
-    notes: ""
+    status: "done"
+    notes: "Dùng OpenAI text-embedding-3-small, collection rag_lab từ ChromaDB Day 08"
 
 # ─────────────────────────────────────────────
 # Policy Tool Worker
@@ -166,11 +166,8 @@ policy_tool_worker:
     - "Phải ghi tên MCP tool đã gọi vào mcp_tools_used"
     - "Không được tự bịa policy rules không có trong tài liệu"
   actual_implementation:
-    status: "TODO Sprint 2"
-    notes: ""
-
-# ─────────────────────────────────────────────
-# Synthesis Worker
+    status: "done"
+    notes: "LLM-based (gpt-4o-mini, json_object mode) với rule-based fallback. Detect flash_sale, digital_product, activated exceptions"
 # ─────────────────────────────────────────────
 
 synthesis_worker:
@@ -214,11 +211,8 @@ synthesis_worker:
     - "confidence < 0.4 → khuyến khích set hitl_triggered=True"
     - "Không được dùng kiến thức ngoài context được cung cấp"
   actual_implementation:
-    status: "TODO Sprint 2"
-    notes: ""
-
-# ─────────────────────────────────────────────
-# MCP Server
+    status: "done"
+    notes: "Dùng gpt-4o-mini, temperature=0.1. Abstain khi không có chunks. Citation format [source_name]"
 # ─────────────────────────────────────────────
 
 mcp_server:
